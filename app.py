@@ -1,3 +1,4 @@
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import json
@@ -8,32 +9,32 @@ import threading
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
-
+ 
 app = Flask(__name__)
 CORS(app)
-
+ 
 DB_FILE = 'users.json'
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '8886493414:AAGl71gqcRsQ7NmUA0u8VLYxW8CgES6VZoU')
 GAME_URL = 'https://chuhalenkov-cloud.github.io/Fenix-tapper/'
-
+ 
 db_lock = threading.Lock()
-
+ 
 def load_db():
     with db_lock:
         if os.path.exists(DB_FILE):
             with open(DB_FILE, 'r') as f:
                 return json.load(f)
         return {}
-
+ 
 def save_db(db):
     with db_lock:
         with open(DB_FILE, 'w') as f:
             json.dump(db, f, indent=2)
-
+ 
 @app.route('/')
 def index():
     return jsonify({'status': 'FENIX Bot Server Running 🔥'})
-
+ 
 @app.route('/user/get', methods=['GET'])
 def get_user():
     user_id = request.args.get('user_id')
@@ -53,7 +54,7 @@ def get_user():
         'created': int(time.time())
     })
     return jsonify(user)
-
+ 
 @app.route('/user/save', methods=['POST'])
 def save_user():
     data = request.json
@@ -75,7 +76,7 @@ def save_user():
     })
     save_db(db)
     return jsonify({'success': True})
-
+ 
 @app.route('/ref/register', methods=['POST'])
 def register_ref():
     data = request.json
@@ -104,7 +105,7 @@ def register_ref():
         save_db(db)
         return jsonify({'success': True, 'new_user': True})
     return jsonify({'success': True, 'new_user': False})
-
+ 
 @app.route('/leaderboard', methods=['GET'])
 def leaderboard():
     db = load_db()
@@ -113,28 +114,28 @@ def leaderboard():
     top = users[:50]
     result = [{'user_id': u.get('user_id'), 'username': u.get('username', 'Player'), 'coins': u.get('coins', 0)} for u in top]
     return jsonify(result)
-
+ 
 @app.route('/stats', methods=['GET'])
 def stats():
     db = load_db()
     return jsonify({'total_users': len(db), 'total_coins': sum(u.get('coins', 0) for u in db.values())})
-
+ 
 # ===== TELEGRAM BOT =====
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-
+ 
 @dp.message(CommandStart())
 async def start(message: types.Message):
     user_id = str(message.from_user.id)
     username = message.from_user.username or message.from_user.first_name or 'Player'
-
+ 
     args = message.text.split()
     ref_by = None
     if len(args) > 1 and args[1].startswith('ref'):
         candidate = args[1][3:]
         if candidate != user_id:
             ref_by = candidate
-
+ 
     db = load_db()
     if user_id not in db:
         db[user_id] = {
@@ -156,9 +157,10 @@ async def start(message: types.Message):
             db[ref_by]['coins'] = db[ref_by].get('coins', 0) + 10000
         save_db(db)
     else:
+        # обновим username на случай изменений
         db[user_id]['username'] = username
         save_db(db)
-
+ 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
             text='🐦‍🔥 Играть в FENIX',
@@ -169,7 +171,7 @@ async def start(message: types.Message):
             url=f'https://t.me/share/url?url=https://t.me/Fenixtoken_bot?start=ref{user_id}&text=🔥 Играй в FENIX и зарабатывай токены!'
         )]
     ])
-
+ 
     await message.answer(
         f'🐦‍🔥 *Добро пожаловать в FENIX TAPPER!*\n\n'
         f'Тапай, зарабатывай монеты и получай реальные *$FENIX токены* на presale!\n\n'
@@ -178,15 +180,17 @@ async def start(message: types.Message):
         parse_mode='Markdown',
         reply_markup=keyboard
     )
-
+ 
 def run_bot():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(dp.start_polling(bot))
-
+ 
+# Запускаем бота в фоновом потоке вместе с веб-сервером
 bot_thread = threading.Thread(target=run_bot, daemon=True)
 bot_thread.start()
-
+ 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+ 
