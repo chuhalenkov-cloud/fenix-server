@@ -5,7 +5,6 @@ import os
 import time
 import asyncio
 import threading
-import aiohttp
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -15,18 +14,21 @@ CORS(app)
 
 DB_FILE = 'users.json'
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '8886493414:AAGl71gqcRsQ7NmUA0u8VLYxW8CgES6VZoU')
-SERVER_URL = 'https://fenix-server-production.up.railway.app'
 GAME_URL = 'https://chuhalenkov-cloud.github.io/Fenix-tapper/'
 
+db_lock = threading.Lock()
+
 def load_db():
-    if os.path.exists(DB_FILE):
-        with open(DB_FILE, 'r') as f:
-            return json.load(f)
-    return {}
+    with db_lock:
+        if os.path.exists(DB_FILE):
+            with open(DB_FILE, 'r') as f:
+                return json.load(f)
+        return {}
 
 def save_db(db):
-    with open(DB_FILE, 'w') as f:
-        json.dump(db, f, indent=2)
+    with db_lock:
+        with open(DB_FILE, 'w') as f:
+            json.dump(db, f, indent=2)
 
 @app.route('/')
 def index():
@@ -95,7 +97,7 @@ def register_ref():
             'ref_by': ref_by if ref_by else None,
             'created': int(time.time())
         }
-        if ref_by and ref_by in db:
+        if ref_by and ref_by in db and ref_by != user_id:
             db[ref_by]['refs'] = db[ref_by].get('refs', 0) + 1
             db[ref_by]['ref_bonus'] = db[ref_by].get('ref_bonus', 0) + 10000
             db[ref_by]['coins'] = db[ref_by].get('coins', 0) + 10000
@@ -109,7 +111,7 @@ def leaderboard():
     users = list(db.values())
     users.sort(key=lambda x: x.get('coins', 0), reverse=True)
     top = users[:50]
-    result = [{'username': u.get('username', 'Player'), 'coins': u.get('coins', 0)} for u in top]
+    result = [{'user_id': u.get('user_id'), 'username': u.get('username', 'Player'), 'coins': u.get('coins', 0)} for u in top]
     return jsonify(result)
 
 @app.route('/stats', methods=['GET'])
@@ -125,12 +127,14 @@ dp = Dispatcher()
 async def start(message: types.Message):
     user_id = str(message.from_user.id)
     username = message.from_user.username or message.from_user.first_name or 'Player'
-    
+
     args = message.text.split()
     ref_by = None
     if len(args) > 1 and args[1].startswith('ref'):
-        ref_by = args[1][3:]
-    
+        candidate = args[1][3:]
+        if candidate != user_id:
+            ref_by = candidate
+
     db = load_db()
     if user_id not in db:
         db[user_id] = {
@@ -151,6 +155,9 @@ async def start(message: types.Message):
             db[ref_by]['ref_bonus'] = db[ref_by].get('ref_bonus', 0) + 10000
             db[ref_by]['coins'] = db[ref_by].get('coins', 0) + 10000
         save_db(db)
+    else:
+        db[user_id]['username'] = username
+        save_db(db)
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
@@ -159,13 +166,13 @@ async def start(message: types.Message):
         )],
         [InlineKeyboardButton(
             text='👥 Пригласить друга',
-            url=f'https://t.me/share/url?url=https://t.me/Fenixtoken_bot?start=ref{user_id}&text=🔥 Играй в FENIX!'
+            url=f'https://t.me/share/url?url=https://t.me/Fenixtoken_bot?start=ref{user_id}&text=🔥 Играй в FENIX и зарабатывай токены!'
         )]
     ])
-    
+
     await message.answer(
         f'🐦‍🔥 *Добро пожаловать в FENIX TAPPER!*\n\n'
-        f'Тапай и зарабатывай реальные *$FENIX токены*!\n\n'
+        f'Тапай, зарабатывай монеты и получай реальные *$FENIX токены* на presale!\n\n'
         f'👤 Твой ID: `{user_id}`\n'
         f'{"✅ Ты пришёл по реферальной ссылке!" if ref_by else ""}',
         parse_mode='Markdown',
@@ -177,7 +184,6 @@ def run_bot():
     asyncio.set_event_loop(loop)
     loop.run_until_complete(dp.start_polling(bot))
 
-# Запускаем бота в отдельном потоке
 bot_thread = threading.Thread(target=run_bot, daemon=True)
 bot_thread.start()
 
